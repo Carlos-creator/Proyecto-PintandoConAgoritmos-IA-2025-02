@@ -1,0 +1,13 @@
+--- Reporte de Ejecucion ---
+Instancia: bach.png
+Tiempo Total: 895.697 segundos (14.9283 min)
+
+--- Parametros Usados ---
+N_STROKES: 100
+K_SAMPLES_GREEDY: 1000
+K_ATTEMPTS_HC: 5000
+
+--- Resultados de Optimizacion ---
+MSE post-Greedy (Inicial): 2275.79
+MSE post-HC (Final): 413.798
+Iteraciones HC Totales: 418325

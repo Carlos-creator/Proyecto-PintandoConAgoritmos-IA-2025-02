@@ -1,0 +1,13 @@
+--- Reporte de Ejecucion ---
+Instancia: starrynight.png
+Tiempo Total: 620.496 segundos (10.3416 min)
+
+--- Parametros Usados ---
+N_STROKES: 100
+K_SAMPLES_GREEDY: 1000
+K_ATTEMPTS_HC: 5000
+
+--- Resultados de Optimizacion ---
+MSE post-Greedy (Inicial): 1135.34
+MSE post-HC (Final): 481.08
+Iteraciones HC Totales: 275807
