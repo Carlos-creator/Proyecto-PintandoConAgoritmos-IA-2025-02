@@ -122,12 +122,16 @@ make clean
 
 ## 🎨 Resultados Visuales (Mona Lisa)
 
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/f9e43468-4dd9-4cb0-be44-3b17301e42cd" width="350" style="margin-right: 20px;">
-  <img src="https://github.com/user-attachments/assets/edb0409c-3f3c-4d93-88b4-a56bb139c34f" width="350">
-</p>
-
-<p align="center">
-  <b>Greedy (izquierda)</b> — <b>Hill Climbing (derecha)</b>
-</p>
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/f9e43468-4dd9-4cb0-be44-3b17301e42cd" width="330"><br>
+      🟦 <b>Greedy – Construcción Inicial</b>
+    </td>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/edb0409c-3f3c-4d93-88b4-a56bb139c34f" width="330"><br>
+      🟥 <b>Hill Climbing – Optimización Final</b>
+    </td>
+  </tr>
+</table>
 
