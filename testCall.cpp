@@ -7,6 +7,11 @@
 #include <limits>     // Necesario para std::numeric_limits
 #include <chrono>     // Necesario para medir tiempo (opcional)
 #include <fstream>    // Necesario para operaciones con archivos
+#include <sstream>    // Necesario para std::stringstream
+#include <iomanip>    // Necesario para std::setprecision 
+#include <sys/stat.h> // mkdir (Linux)
+#include <direct.h>  // Windows
+
 // --- Helpers RNG (Generadores de números aleatorios) ---
 
 static std::mt19937 rng(std::random_device{}());
@@ -27,6 +32,25 @@ const T& clamp(const T& v, const T& lo, const T& hi) {
     if (v < lo) return lo;
     if (hi < v) return hi;
     return v;
+}
+
+// Helper para crear carpetas (compatible con Windows/Linux)
+void createDirectory(const std::string& path) {
+    struct stat info;
+    if (stat(path.c_str(), &info) != 0) { // Si no existe
+#if defined(_WIN32)
+        _mkdir(path.c_str());
+#else
+        mkdir(path.c_str(), 0777);
+#endif
+    }
+}
+
+// Helper para formatear nombres de archivo (ej. frame_0001.png)
+std::string formatFrameName(const std::string& path, int frameNum) {
+    std::stringstream ss;
+    ss << path << "/frame_" << std::setw(5) << std::setfill('0') << frameNum << ".png";
+    return ss.str();
 }
 
 
@@ -78,7 +102,8 @@ Stroke generateRandomStroke() {
  * La "Función Miope" aquí es: en cada paso, probar K trazos aleatorios y
  * añadir el que cause la mayor reducción INMEDIATA del MSE.
  */
-std::vector<Stroke> runGreedyPhase(const Canvas& C_target, int N_strokes, int K_samples, double& out_greedy_mse) {
+// Agregar parámetro: const std::string& frames_path
+std::vector<Stroke> runGreedyPhase(const Canvas& C_target, int N_strokes, int K_samples, double& out_greedy_mse, const std::string& frames_path) {
     
     std::vector<Stroke> s0; // Solución inicial (vacía)
     
@@ -124,6 +149,11 @@ std::vector<Stroke> runGreedyPhase(const Canvas& C_target, int N_strokes, int K_
         s0.push_back(best_stroke_this_step);
         best_stroke_this_step.draw(C_current); // Actualiza permanentemente el lienzo actual
         best_mse = best_mse_this_step; // Actualiza el MSE a batir
+
+        // --- GUARDAR FRAME (¡NUEVO!) ---
+        std::string frame_name = formatFrameName(frames_path, i); 
+        savePNG(C_current, frame_name);
+        // --- FIN GUARDAR FRAME ---
 
         std::cout << "Greedy [Stroke " << i+1 << "/" << N_strokes << "] MSE actual: " << best_mse << std::endl;
     }
@@ -186,6 +216,10 @@ std::vector<Stroke> generateNeighbor(const std::vector<Stroke>& s_actual) {
     return s_vecino;
 }
 
+
+
+
+
 // ===================================================================
 // TAREA 5: IMPLEMENTAR FASE 2 (Hill Climbing AM)
 // ===================================================================
@@ -200,23 +234,29 @@ std::vector<Stroke> runHillClimbing(
     const Canvas& C_target, 
     int K_ATTEMPTS,
     int& out_total_iters, 
-    double& out_final_mse) 
+    double& out_final_mse,
+    const std::string& frames_path) // <--- CAMBIO: Recibimos la ruta correcta
 {
     std::vector<Stroke> s_actual = s0;
     
     // Lienzo para renderizar la solución actual
     Canvas C_current(C_target.width, C_target.height);
-    render(s_actual, C_current); //
+    render(s_actual, C_current); 
     
     // Evaluar la solución inicial
     double mse_actual = calculateMSE(C_current, C_target);
     std::cout << "Iniciando Fase HC+AM..." << std::endl;
     std::cout << "HC [Iter 0] MSE inicial: " << mse_actual << std::endl;
 
+    // --- CAMBIO: YA NO CREAMOS LA CARPETA AQUÍ ---
+    // Borramos las líneas de createDirectory porque el main ya lo hizo.
+    // Solo necesitamos el contador:
+    int hc_frame_counter = 0;
+
     // Lienzo temporal para probar vecinos
     Canvas C_neighbor(C_target.width, C_target.height);
 
-    int attempts_failed = 0; // Contador de intentos fallidos
+    int attempts_failed = 0; 
     int iter = 1;
 
     while (attempts_failed < K_ATTEMPTS) {
@@ -229,20 +269,31 @@ std::vector<Stroke> runHillClimbing(
         double mse_vecino = calculateMSE(C_neighbor, C_target);
 
         // 3. Criterio de Selección (Alguna Mejora)
-        // Estamos minimizando MSE, así que buscamos un costo menor.
         if (mse_vecino < mse_actual) {
             // ¡Mejora! Aceptamos el vecino
             s_actual = s_vecino;
             mse_actual = mse_vecino;
-            
-            // Reiniciamos el contador de fallos
             attempts_failed = 0;
             
-            std::cout << "HC [Iter " << iter << "] ¡Mejora! MSE: " << mse_actual << std::endl;
+            // (Opcional) Comentar este cout si llena mucho la consola
+            // std::cout << "HC [Iter " << iter << "] Mejora MSE: " << mse_actual << std::endl;
         } else {
-            // No mejora. Descartamos el vecino e incrementamos el contador.
             attempts_failed++;
         }
+
+        // --- GUARDAR FRAME ---
+        // Guardamos una foto cada 1000 iteraciones
+        if (iter % 1000 == 0) { 
+            render(s_actual, C_neighbor);
+            std::string frame_name = formatFrameName(frames_path, hc_frame_counter);
+            savePNG(C_neighbor, frame_name);
+            hc_frame_counter++;
+
+            // AGREGA ESTO SI NO TE SALE NADA EN CONSOLA:
+            std::cout << "HC [Iter " << iter << "] Fallos seguidos: " 
+                      << attempts_failed << " | MSE actual: " << mse_actual << std::endl;
+        }
+        
         iter++;
     }
 
@@ -253,14 +304,47 @@ std::vector<Stroke> runHillClimbing(
 }
 
 
-// ===================================================================
-// PROGRAMA PRINCIPAL
-// ===================================================================
-int main() {
+int main(int argc, char* argv[]) {
+    // --- Validación de Argumentos ---
+    if (argc < 2) {
+        std::cerr << "Error: Se requiere el nombre de la instancia.\n";
+        return 1;
+    }
+    std::string target_file = argv[1]; // ej: "instancias/mona.png" o "mona.png"
+    
+    // 1. Extraer nombre base (sin ruta y sin extensión)
+    // "instancias/mona.png" -> "mona"
+    std::string base_name = target_file;
+    // Quitar directorios previos si los hay
+    const size_t last_slash_idx = base_name.find_last_of("\\/");
+    if (std::string::npos != last_slash_idx) {
+        base_name.erase(0, last_slash_idx + 1);
+    }
+    // Quitar extensión
+    const size_t period_idx = base_name.rfind('.');
+    if (std::string::npos != period_idx) {
+        base_name.erase(period_idx);
+    }
+
+    // 2. Definir Estructura de Carpetas
+    std::string root_folder = "resultados_" + base_name;
+    std::string output_folder = root_folder + "/output";
+    std::string frames_greedy_path = root_folder + "/frames_greedy";
+    std::string frames_hc_path = root_folder + "/frames_hc";
+
+    // 3. Crear Carpetas
+    createDirectory(root_folder);
+    createDirectory(output_folder);
+    createDirectory(frames_greedy_path);
+    createDirectory(frames_hc_path);
+
+    std::cout << "=== Procesando: " << base_name << " ===\n";
+    std::cout << "Carpeta de resultados: " << root_folder << "\n";
+
     // <--- INICIAR CRONÓMETRO ---
     auto start_time = std::chrono::high_resolution_clock::now();
 
-    // 1) Cargar brushes (igual que antes)
+    // Cargar brushes (Igual que antes)
     {
         ImageGray b0, b1, b2, b3;
         if (!loadImageGray("brushes/1.jpg", b0)) return 1;
@@ -273,77 +357,76 @@ int main() {
         gBrushes.push_back(std::move(b3));
     }
 
-    // 2) Cargar la imagen OBJETIVO
-    std::string target_name = "starrynight.png"; // ¡Puedes cambiar esto!
+    // Cargar Objetivo (Maneja si pasaste "mona.png" o "instancias/mona.png")
     Canvas C_target(1, 1);
-    if (!loadImageRGB_asCanvas("instancias/" + target_name, C_target)) { //
-        std::cerr << "Error cargando instancia " << target_name << "\n";
+    std::string path_to_load = target_file;
+    // Si el usuario solo puso "mona.png", asumimos que está en instancias/
+    if (target_file.find("/") == std::string::npos && target_file.find("\\") == std::string::npos) {
+        path_to_load = "instancias/" + target_file;
+    }
+
+    if (!loadImageRGB_asCanvas(path_to_load, C_target)) { 
+        std::cerr << "Error cargando instancia " << path_to_load << "\n";
         return 1;
     }
-    std::cout << "Instancia cargada: " << target_name << " (" << C_target.width << "x" << C_target.height << ")\n";
 
-// 3) Crear lienzo principal (igual que antes)
     Canvas C_generated(C_target.width, C_target.height);
     
-    // --- Definir Parámetros de la Metaheurística ---
-    int N_STROKES = 100;         // Número total de pinceladas a usar
-    int K_SAMPLES_GREEDY = 1000; // Muestras por paso del Greedy (Función Miope)
-    int K_ATTEMPTS_HC = 5000;    // Intentos fallidos antes de detener HC
-
-    // ======================== EXTRAS ====================================
-    // --- Variables para el reporte ---
+    // Parámetros
+    int N_STROKES = 200; // 50, 100, 200, 300 según lo que quieras probar (mientras más, mejor resultado pero más tiempo)
+    int K_SAMPLES_GREEDY = 1000;
+    int K_ATTEMPTS_HC = 5000;
     double greedy_mse = 0.0;
     int total_hc_iters = 0;
     double final_mse = 0.0;
 
-    // ===================================================================
-    // EJECUCIÓN DEL ALGORITMO
-    // ===================================================================
-
-    // --- FASE 1: CONSTRUIR SOLUCIÓN INICIAL (Greedy) ---
-    //std::vector<Stroke> s0 = runGreedyPhase(C_target, N_STROKES, K_SAMPLES_GREEDY);
-    std::vector<Stroke> s0 = runGreedyPhase(C_target, N_STROKES, K_SAMPLES_GREEDY, greedy_mse);
+    // --- EJECUCIÓN ---
     
-    // --- FASE 2: REFINAR SOLUCIÓN (Hill Climbing AM) ---
-    //std::vector<Stroke> s_final = runHillClimbing(s0, C_target, K_ATTEMPTS_HC);
-    std::vector<Stroke> s_final = runHillClimbing(s0, C_target, K_ATTEMPTS_HC, total_hc_iters, final_mse);
+    // PASO IMPORTANTE: Pasar las rutas de las carpetas a las funciones
+    std::vector<Stroke> s0 = runGreedyPhase(C_target, N_STROKES, K_SAMPLES_GREEDY, greedy_mse, frames_greedy_path);
+    std::vector<Stroke> s_final = runHillClimbing(s0, C_target, K_ATTEMPTS_HC, total_hc_iters, final_mse, frames_hc_path);
+    
+    // Render final
+    render(s_final, C_generated); 
 
-    // Por ahora, nuestra solución final es la que salió del Greedy
-    //std::vector<Stroke> s_final = s0;
-
-    // 4) Renderiza (pinta) la solución final en el lienzo C_generated
-    render(s_final, C_generated); //
-
-    // 5) Guardar
-    if (!savePNG(C_generated, "output.png")) { //
-        std::cerr << "Error guardando output.png\n";
-        return 1;
+    // Guardar Output en la subcarpeta 'output'
+    std::string output_png_path = output_folder + "/output_" + base_name + ".png";
+    if (!savePNG(C_generated, output_png_path)) { 
+        std::cerr << "Error guardando " << output_png_path << "\n";
     }
-    std::cout << "OK: guardado output.png\n";
 
-    // <--- DETENER CRONÓMETRO Y GUARDAR REPORTE ---
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end_time - start_time;
-
-    std::ofstream report_file("output_report.txt");
+    
+    // Guardar Reporte en la subcarpeta 'output'
+    std::string report_path = output_folder + "/report_" + base_name + ".txt";
+    std::ofstream report_file(report_path);
+    
     report_file << "--- Reporte de Ejecucion ---\n";
-    report_file << "Instancia: " << target_name << "\n";
+    report_file << "Instancia: " << base_name << ".png\n";
     report_file << "Tiempo Total: " << elapsed.count() << " segundos (" << elapsed.count() / 60.0 << " min)\n";
+    
     report_file << "\n--- Parametros Usados ---\n";
     report_file << "N_STROKES: " << N_STROKES << "\n";
     report_file << "K_SAMPLES_GREEDY: " << K_SAMPLES_GREEDY << "\n";
     report_file << "K_ATTEMPTS_HC: " << K_ATTEMPTS_HC << "\n";
+    
     report_file << "\n--- Resultados de Optimizacion ---\n";
     report_file << "MSE post-Greedy (Inicial): " << greedy_mse << "\n";
     report_file << "MSE post-HC (Final): " << final_mse << "\n";
     report_file << "Iteraciones HC Totales: " << total_hc_iters << "\n";
+    
+    // Agregamos el porcentaje de mejora también, que es útil
+    double mejora_pct = ((greedy_mse - final_mse) / greedy_mse) * 100.0;
+    report_file << "Porcentaje de Mejora: " << std::fixed << std::setprecision(2) << mejora_pct << "%\n";
+    
     report_file.close();
 
-    // (Imprime el tiempo en consola también)
-    std::cout << "\n----------------------------------------" << std::endl;
-    std::cout << "TIEMPO TOTAL DE EJECUCION: " << elapsed.count() << " segundos." << std::endl;
-    std::cout << "Reporte 'output_report.txt' guardado." << std::endl;
-    std::cout << "----------------------------------------" << std::endl;
+    std::cout << "\nLISTO. Resultados guardados en: " << root_folder << "\n";
+    
+    // Opcional: Ejecutar script de Python automáticamente
+    // std::string cmd = "python generar_multimedia.py " + root_folder;
+    // system(cmd.c_str());
 
     return 0;
 }
