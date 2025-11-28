@@ -109,3 +109,21 @@ make clean
 3. Fase Hill Climbing  
 4. Exportación de resultados  
 5. Multimedia opcional  
+
+## 🧠 Pipeline resumido
+
+1. Carga imagen objetivo  
+2. Fase Greedy  
+3. Fase Hill Climbing  
+4. Exportación de resultados  
+5. Multimedia opcional  
+
+---
+
+## 🎨 Resultados Visuales (Mona Lisa)
+
+### 🟦 Greedy – Construcción Inicial
+![Greedy GIF](https://github.com/user-attachments/assets/f9e43468-4dd9-4cb0-be44-3b17301e42cd)
+
+### 🟥 Hill Climbing – Optimización Final
+![Hill Climbing GIF](https://github.com/user-attachments/assets/edb0409c-3f3c-4d93-88b4-a56bb139c34f)
